@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List, Optional
 import httpx
 
 app = FastAPI(
@@ -16,6 +18,56 @@ SERVICES = {
     "payment":   "http://localhost:8004",
     "inventory": "http://localhost:8005",
 }
+
+
+# ──────────────────────── Pydantic Models ────────────────────────
+
+class ProductCreate(BaseModel):
+    name: str
+    description: str
+    price: float
+    category: str
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
+    category: Optional[str] = None
+
+class CustomerCreate(BaseModel):
+    name: str
+    email: str
+    phone: str
+    address: str
+
+class CustomerUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+
+class OrderCreate(BaseModel):
+    customer_id: int
+    product_ids: List[int]
+    total_amount: float
+
+class OrderUpdate(BaseModel):
+    status: Optional[str] = None
+    total_amount: Optional[float] = None
+
+class PaymentCreate(BaseModel):
+    order_id: int
+    amount: float
+    method: str  # e.g. "credit_card", "debit_card", "paypal"
+
+class InventoryCreate(BaseModel):
+    product_id: int
+    quantity: int
+    warehouse_location: str
+
+class InventoryUpdate(BaseModel):
+    quantity: Optional[int] = None
+    warehouse_location: Optional[str] = None
 
 
 # ──────────────────────── Product Service ────────────────────────
@@ -37,20 +89,18 @@ async def get_product(product_id: int):
 
 
 @app.post("/products", tags=["Product Service"])
-async def add_product(request: Request):
+async def add_product(product: ProductCreate):
     """Add a new product (proxied to Product Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{SERVICES['product']}/products", json=body)
+        response = await client.post(f"{SERVICES['product']}/products", json=product.model_dump())
         return response.json()
 
 
 @app.put("/products/{product_id}", tags=["Product Service"])
-async def update_product(product_id: int, request: Request):
+async def update_product(product_id: int, product: ProductUpdate):
     """Update a product (proxied to Product Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.put(f"{SERVICES['product']}/products/{product_id}", json=body)
+        response = await client.put(f"{SERVICES['product']}/products/{product_id}", json=product.model_dump())
         return response.json()
 
 
@@ -81,20 +131,18 @@ async def get_customer(customer_id: int):
 
 
 @app.post("/customers", tags=["Customer Service"])
-async def add_customer(request: Request):
+async def add_customer(customer: CustomerCreate):
     """Add a new customer (proxied to Customer Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{SERVICES['customer']}/customers", json=body)
+        response = await client.post(f"{SERVICES['customer']}/customers", json=customer.model_dump())
         return response.json()
 
 
 @app.put("/customers/{customer_id}", tags=["Customer Service"])
-async def update_customer(customer_id: int, request: Request):
+async def update_customer(customer_id: int, customer: CustomerUpdate):
     """Update a customer (proxied to Customer Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.put(f"{SERVICES['customer']}/customers/{customer_id}", json=body)
+        response = await client.put(f"{SERVICES['customer']}/customers/{customer_id}", json=customer.model_dump())
         return response.json()
 
 
@@ -125,20 +173,18 @@ async def get_order(order_id: int):
 
 
 @app.post("/orders", tags=["Order Service"])
-async def create_order(request: Request):
+async def create_order(order: OrderCreate):
     """Create a new order (proxied to Order Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{SERVICES['order']}/orders", json=body)
+        response = await client.post(f"{SERVICES['order']}/orders", json=order.model_dump())
         return response.json()
 
 
 @app.put("/orders/{order_id}", tags=["Order Service"])
-async def update_order(order_id: int, request: Request):
+async def update_order(order_id: int, order: OrderUpdate):
     """Update an order (proxied to Order Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.put(f"{SERVICES['order']}/orders/{order_id}", json=body)
+        response = await client.put(f"{SERVICES['order']}/orders/{order_id}", json=order.model_dump())
         return response.json()
 
 
@@ -169,11 +215,10 @@ async def get_payment(payment_id: int):
 
 
 @app.post("/pay", tags=["Payment Service"])
-async def make_payment(request: Request):
+async def make_payment(payment: PaymentCreate):
     """Process a payment (proxied to Payment Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{SERVICES['payment']}/pay", json=body)
+        response = await client.post(f"{SERVICES['payment']}/pay", json=payment.model_dump())
         return response.json()
 
 
@@ -196,20 +241,18 @@ async def get_inventory_item(item_id: int):
 
 
 @app.post("/inventory", tags=["Inventory Service"])
-async def add_inventory(request: Request):
+async def add_inventory(item: InventoryCreate):
     """Add an inventory item (proxied to Inventory Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{SERVICES['inventory']}/inventory", json=body)
+        response = await client.post(f"{SERVICES['inventory']}/inventory", json=item.model_dump())
         return response.json()
 
 
 @app.put("/inventory/{item_id}", tags=["Inventory Service"])
-async def update_inventory(item_id: int, request: Request):
+async def update_inventory(item_id: int, item: InventoryUpdate):
     """Update an inventory item (proxied to Inventory Service)."""
-    body = await request.json()
     async with httpx.AsyncClient() as client:
-        response = await client.put(f"{SERVICES['inventory']}/inventory/{item_id}", json=body)
+        response = await client.put(f"{SERVICES['inventory']}/inventory/{item_id}", json=item.model_dump())
         return response.json()
 
 
