@@ -65,6 +65,11 @@ class PaymentCreate(BaseModel):
     amount: float
     method: str  # e.g. "credit_card", "debit_card", "paypal"
 
+class PaymentRequest(BaseModel):
+    """Used by the gateway — amount is auto-fetched from the order's total_amount."""
+    order_id: int
+    method: str  # e.g. "credit_card", "debit_card", "paypal"
+
 class InventoryCreate(BaseModel):
     product_id: int
     quantity: int
@@ -263,10 +268,34 @@ async def get_payment(payment_id: int):
 
 
 @app.post("/pay", tags=["Payment Service"])
-async def make_payment(payment: PaymentCreate):
-    """Process a payment (proxied to Payment Service)."""
+async def make_payment(payment: PaymentRequest):
+    """
+    Process a payment (proxied to Payment Service).
+
+    - Validates order_id against the Order Service.
+    - Auto-fetches the payment amount from the order's total_amount — do NOT enter it manually.
+    """
+    # Validate order exists and fetch total_amount
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{SERVICES['payment']}/pay", json=payment.model_dump())
+        order_resp = await client.get(f"{SERVICES['order']}/orders/{payment.order_id}")
+        if order_resp.status_code == 404:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Order with ID {payment.order_id} does not exist. "
+                       f"Please create the order first before making a payment."
+            )
+        order_data = order_resp.json()
+
+    amount = order_data.get("total_amount", 0.0)
+
+    payload = {
+        "order_id": payment.order_id,
+        "amount": amount,
+        "method": payment.method,
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{SERVICES['payment']}/pay", json=payload)
         return response.json()
 
 
@@ -290,7 +319,21 @@ async def get_inventory_item(item_id: int):
 
 @app.post("/inventory", tags=["Inventory Service"])
 async def add_inventory(item: InventoryCreate):
-    """Add an inventory item (proxied to Inventory Service)."""
+    """
+    Add an inventory item (proxied to Inventory Service).
+
+    - Validates product_id against the Product Service before adding to inventory.
+    """
+    # Validate product exists
+    async with httpx.AsyncClient() as client:
+        product_resp = await client.get(f"{SERVICES['product']}/products/{item.product_id}")
+        if product_resp.status_code == 404:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Product with ID {item.product_id} does not exist. "
+                       f"Please add the product first before adding it to inventory."
+            )
+
     async with httpx.AsyncClient() as client:
         response = await client.post(f"{SERVICES['inventory']}/inventory", json=item.model_dump())
         return response.json()
