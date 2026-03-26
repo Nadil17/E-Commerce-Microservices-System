@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import httpx
@@ -50,6 +50,11 @@ class OrderCreate(BaseModel):
     customer_id: int
     product_ids: List[int]
     total_amount: float
+
+class OrderRequest(BaseModel):
+    """Used by the gateway — total_amount is auto-calculated from product prices."""
+    customer_id: int
+    product_ids: List[int]
 
 class OrderUpdate(BaseModel):
     status: Optional[str] = None
@@ -173,11 +178,54 @@ async def get_order(order_id: int):
 
 
 @app.post("/orders", tags=["Order Service"])
-async def create_order(order: OrderCreate):
-    """Create a new order (proxied to Order Service)."""
+async def create_order(order: OrderRequest):
+    """
+    Create a new order (proxied to Order Service).
+
+    - Validates customer_id against the Customer Service.
+    - Validates every product_id against the Product Service.
+    - Auto-calculates total_amount from product prices — do NOT enter it manually.
+    """
+    # Step 1: Validate customer exists
     async with httpx.AsyncClient() as client:
-        response = await client.post(f"{SERVICES['order']}/orders", json=order.model_dump())
+        customer_resp = await client.get(f"{SERVICES['customer']}/customers/{order.customer_id}")
+        if customer_resp.status_code == 404:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Customer with ID {order.customer_id} does not exist. "
+                       f"Please add the customer first before placing an order."
+            )
+
+    # Step 2: Validate product IDs and calculate total
+    invalid_ids = []
+    total_amount = 0.0
+
+    async with httpx.AsyncClient() as client:
+        for pid in order.product_ids:
+            resp = await client.get(f"{SERVICES['product']}/products/{pid}")
+            if resp.status_code == 404:
+                invalid_ids.append(pid)
+            else:
+                product_data = resp.json()
+                total_amount += product_data.get("price", 0.0)
+
+    if invalid_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=f"The following product IDs do not exist: {invalid_ids}. "
+                   f"Please add these products first before placing an order."
+        )
+
+    payload = {
+        "customer_id": order.customer_id,
+        "product_ids": order.product_ids,
+        "total_amount": round(total_amount, 2),
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{SERVICES['order']}/orders", json=payload)
         return response.json()
+
 
 
 @app.put("/orders/{order_id}", tags=["Order Service"])
